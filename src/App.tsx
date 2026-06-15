@@ -27,6 +27,7 @@ import Login from "./Login";
 import Onboarding from "./Onboarding";
 import {
   type Settings,
+  type SortKey,
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
@@ -49,7 +50,6 @@ import { makeT, isRTL, type Lang } from "./i18n";
 import "./App.css";
 
 type View = "loading" | "onboarding" | "login" | "widget";
-type SortKey = "updated" | "created" | "key" | "name" | "status";
 
 interface StatusMenu {
   key: string;
@@ -91,13 +91,11 @@ export default function App() {
   const [statusMenu, setStatusMenu] = useState<StatusMenu | null>(null);
   const [menuTransitions, setMenuTransitions] = useState<Transition[] | null>(null);
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  // sortKey + scopeBoard + scopeSprint live in settings (persisted)
 
   // ---- board / sprint scope ----
   const [boards, setBoards] = useState<Board[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
-  const [scopeBoard, setScopeBoard] = useState<number | null>(null); // null = my issues
-  const [scopeSprint, setScopeSprint] = useState<number | null>(null);
 
   // ---- auth / view state ----
   const [view, setView] = useState<View>("loading");
@@ -211,9 +209,8 @@ export default function App() {
     }
   };
 
-  const pickBoard = async (board: number | null) => {
-    setScopeBoard(board);
-    setScopeSprint(null);
+  const pickBoard = (board: number | null) => {
+    updateAppearance({ scopeBoard: board, scopeSprint: null });
     setSprints([]);
     refreshIssues(settings, board, null);
     if (board != null) {
@@ -223,8 +220,8 @@ export default function App() {
     }
   };
   const pickSprint = (sprint: number | null) => {
-    setScopeSprint(sprint);
-    refreshIssues(settings, scopeBoard, sprint);
+    updateAppearance({ scopeSprint: sprint });
+    refreshIssues(settings, settings.scopeBoard, sprint);
   };
 
   // appearance change from the settings screen: apply live + persist (debounced)
@@ -237,11 +234,16 @@ export default function App() {
     });
   };
 
-  // fetch issues + load boards whenever we (re-)enter the widget while authed
+  // fetch issues + load boards/sprints whenever we (re-)enter the widget while authed
   useEffect(() => {
     if (view !== "widget" || !hasCreds) return;
-    refreshIssues(settings, scopeBoard, scopeSprint);
+    refreshIssues(settings, settings.scopeBoard, settings.scopeSprint);
     if (boards.length === 0) getBoards(settings).then(setBoards).catch(() => {});
+    if (settings.scopeBoard != null && sprints.length === 0) {
+      getBoardSprints(settings, settings.scopeBoard)
+        .then(setSprints)
+        .catch(() => setSprints([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, hasCreds]);
 
@@ -470,7 +472,7 @@ export default function App() {
       !q || tk.key.toLowerCase().includes(q) || tk.title.toLowerCase().includes(q)
   );
   const sorted = [...filtered].sort((a, b) => {
-    switch (sortKey) {
+    switch (settings.sortKey) {
       case "created":
         return b.created.localeCompare(a.created);
       case "key":
@@ -484,7 +486,7 @@ export default function App() {
     }
   });
   const groups: { status: string; items: Task[] }[] = [];
-  if (sortKey === "status") {
+  if (settings.sortKey === "status") {
     for (const tk of sorted) {
       const g = groups.find((x) => x.status === tk.status);
       if (g) g.items.push(tk);
@@ -644,7 +646,9 @@ export default function App() {
             className="iconbtn"
             style={{ width: 22, height: 22, marginInlineStart: "auto" }}
             title={t("reloadTitle")}
-            onClick={() => refreshIssues(settings, scopeBoard, scopeSprint)}
+            onClick={() =>
+              refreshIssues(settings, settings.scopeBoard, settings.scopeSprint)
+            }
             disabled={loadingTasks}
           >
             <RefreshCw size={13} className={loadingTasks ? "spin" : ""} />
@@ -658,7 +662,7 @@ export default function App() {
             <select
               className="sortsel"
               style={{ flex: 1 }}
-              value={scopeBoard ?? "mine"}
+              value={settings.scopeBoard ?? "mine"}
               onChange={(e) =>
                 pickBoard(e.target.value === "mine" ? null : Number(e.target.value))
               }
@@ -670,11 +674,11 @@ export default function App() {
                 </option>
               ))}
             </select>
-            {scopeBoard != null && sprints.length > 0 && (
+            {settings.scopeBoard != null && sprints.length > 0 && (
               <select
                 className="sortsel"
                 style={{ flex: 1 }}
-                value={scopeSprint ?? "all"}
+                value={settings.scopeSprint ?? "all"}
                 onChange={(e) =>
                   pickSprint(e.target.value === "all" ? null : Number(e.target.value))
                 }
@@ -701,8 +705,8 @@ export default function App() {
           </div>
           <select
             className="sortsel"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            value={settings.sortKey}
+            onChange={(e) => updateAppearance({ sortKey: e.target.value as SortKey })}
             title={t("sortBy")}
           >
             <option value="updated">{t("sortUpdated")}</option>
@@ -720,7 +724,7 @@ export default function App() {
             <div className="empty">{t("noTasks")}</div>
           ) : sorted.length === 0 ? (
             <div className="empty">{t("noMatch")}</div>
-          ) : sortKey === "status" ? (
+          ) : settings.sortKey === "status" ? (
             groups.map((g) => (
               <div key={g.status} className="statusgroup">
                 <div className="grouphdr">

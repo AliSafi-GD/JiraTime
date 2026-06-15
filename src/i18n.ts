@@ -78,6 +78,11 @@ const fa: Dict = {
   version: "نسخه",
   repo: "مخزن کد (گیت‌هاب)",
   madeWith: "ساخته‌شده با Tauri + React",
+  checkUpdate: "بررسی به‌روزرسانی",
+  checking2: "در حال بررسی…",
+  upToDate: "آخرین نسخه را داری ✓",
+  updateAvailable: "نسخه‌ی جدید: {v} — دانلود",
+  checkFailed: "بررسی ناموفق بود",
 };
 
 const en: Dict = {
@@ -152,6 +157,11 @@ const en: Dict = {
   version: "Version",
   repo: "Source code (GitHub)",
   madeWith: "Built with Tauri + React",
+  checkUpdate: "Check for updates",
+  checking2: "Checking…",
+  upToDate: "You're on the latest version ✓",
+  updateAvailable: "New version: {v} — download",
+  checkFailed: "Check failed",
 };
 
 const dicts: Record<Lang, Dict> = { fa, en };

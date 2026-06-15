@@ -3,6 +3,7 @@ import type { Lang } from "./i18n";
 
 export type AuthMethod = "pat" | "basic";
 export type DockSide = "left" | "right";
+export type SortKey = "updated" | "created" | "key" | "name" | "status";
 
 export interface Settings {
   baseUrl: string;
@@ -16,6 +17,10 @@ export interface Settings {
   // general
   lang: Lang;
   onboarded: boolean; // false until the first-run language pick is done
+  // task list filters (persisted)
+  sortKey: SortKey;
+  scopeBoard: number | null; // null = my issues
+  scopeSprint: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +33,9 @@ export const DEFAULT_SETTINGS: Settings = {
   dimDelaySec: 3,
   lang: "fa",
   onboarded: false,
+  sortKey: "updated",
+  scopeBoard: null,
+  scopeSprint: null,
 };
 
 const STORE_FILE = "settings.json";

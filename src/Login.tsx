@@ -14,7 +14,12 @@ import {
   PanelRight,
   ExternalLink,
 } from "lucide-react";
-import { REPO_URL, APP_AUTHOR } from "./config";
+import { REPO_URL, REPO_SLUG, APP_AUTHOR } from "./config";
+
+interface UpdateInfo {
+  latest: string;
+  url: string;
+}
 import {
   type Settings,
   type AuthMethod,
@@ -56,10 +61,28 @@ export default function Login({
   const [autostartOn, setAutostartOn] = useState(false);
   const [tab, setTab] = useState<"conn" | "appear" | "general" | "about">("conn");
   const [version, setVersion] = useState("");
+  const [updateState, setUpdateState] = useState<
+    { kind: "idle" | "checking" | "ok" | "err" } | { kind: "new"; v: string; url: string }
+  >({ kind: "idle" });
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
+
+  const checkUpdate = async () => {
+    setUpdateState({ kind: "checking" });
+    try {
+      const info = await invoke<UpdateInfo>("check_update", { repo: REPO_SLUG });
+      const latest = info.latest.replace(/^v/, "");
+      if (latest && latest !== version) {
+        setUpdateState({ kind: "new", v: info.latest, url: info.url });
+      } else {
+        setUpdateState({ kind: "ok" });
+      }
+    } catch {
+      setUpdateState({ kind: "err" });
+    }
+  };
 
   const rtl = isRTL(current.lang);
   const Back = rtl ? ArrowRight : ArrowLeft;
@@ -355,6 +378,34 @@ export default function Login({
             <button className="repobtn" onClick={() => openUrl(REPO_URL)}>
               <ExternalLink size={14} /> {t("repo")}
             </button>
+
+            <button
+              className="repobtn"
+              onClick={checkUpdate}
+              disabled={updateState.kind === "checking"}
+            >
+              {updateState.kind === "checking" ? t("checking2") : t("checkUpdate")}
+            </button>
+            {updateState.kind === "ok" && (
+              <div className="notice ok" style={{ margin: 0 }}>
+                {t("upToDate")}
+              </div>
+            )}
+            {updateState.kind === "err" && (
+              <div className="notice err" style={{ margin: 0 }}>
+                {t("checkFailed")}
+              </div>
+            )}
+            {updateState.kind === "new" && (
+              <button
+                className="notice ok"
+                style={{ margin: 0, border: "none", cursor: "pointer" }}
+                onClick={() => openUrl(updateState.url)}
+              >
+                {t("updateAvailable", { v: updateState.v })}
+              </button>
+            )}
+
             <div className="aboutfoot">
               {t("madeWith")}
               <br />© {APP_AUTHOR}

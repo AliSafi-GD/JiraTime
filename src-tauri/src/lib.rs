@@ -103,6 +103,7 @@ pub fn run() {
             jira::test_and_save_credentials,
             jira::has_credentials,
             jira::clear_credentials,
+            jira::check_update,
             jira::search_issues,
             jira::get_boards,
             jira::get_board_sprints,

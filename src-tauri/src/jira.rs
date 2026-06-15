@@ -106,6 +106,34 @@ pub fn has_credentials() -> bool {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    latest: String,
+    url: String,
+}
+
+/// Query GitHub for the latest release tag (no auth needed; public repo).
+#[tauri::command]
+pub async fn check_update(repo: String) -> Result<UpdateInfo, String> {
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "jira-timer")
+        .send()
+        .await
+        .map_err(|e| format!("خطای اتصال: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("بررسی به‌روزرسانی ناموفق بود: {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("پاسخ نامعتبر: {e}"))?;
+    Ok(UpdateInfo {
+        latest: v.get("tag_name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        url: v.get("html_url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+    })
+}
+
 /// Remove the stored secret (logout).
 #[tauri::command]
 pub fn clear_credentials() -> Result<(), String> {
