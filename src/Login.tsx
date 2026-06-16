@@ -340,6 +340,15 @@ export default function Login({
                 }
               />
             </div>
+
+            <label className="switchrow">
+              <span>{t("hoverPeekLabel")}</span>
+              <input
+                type="checkbox"
+                checked={current.hoverPeek}
+                onChange={(e) => onAppearanceChange({ hoverPeek: e.target.checked })}
+              />
+            </label>
           </>
         )}
 

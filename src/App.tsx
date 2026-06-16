@@ -15,7 +15,9 @@ import {
   RefreshCw,
   X,
   Search,
+  Share2,
 } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   getCurrentWindow,
   currentMonitor,
@@ -65,6 +67,8 @@ const WIN_W = 340;
 const WIN_H = 620;
 const TAB_W = 34;
 const TAB_H = 150;
+const PEEK_W = 220;
+const PEEK_H = 150;
 const MENU_W = 150;
 
 function fmt(total: number): string {
@@ -89,8 +93,10 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [temp, setTemp] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [peek, setPeek] = useState(false);
   const [tabDim, setTabDim] = useState(false);
   const dimTimer = useRef<number | null>(null);
+  const peekTimer = useRef<number | null>(null);
   const apprSaveTimer = useRef<number | null>(null);
   const [pinned, setPinned] = useState(true);
   const [statusMenu, setStatusMenu] = useState<StatusMenu | null>(null);
@@ -118,6 +124,7 @@ export default function App() {
   // ---- update check ----
   const [version, setVersion] = useState("");
   const checkedRef = useRef(false);
+  const sizeAppliedRef = useRef(false);
   const normV = (v: string) => v.replace(/^v/, "");
   const hasUpdate =
     !!version &&
@@ -266,6 +273,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, hasCreds]);
 
+  // restore the remembered expanded window size once per launch
+  useEffect(() => {
+    if (view !== "widget" || collapsed || sizeAppliedRef.current) return;
+    sizeAppliedRef.current = true;
+    if (settings.winW && settings.winH) {
+      const w = settings.winW;
+      getCurrentWindow()
+        .setSize(new LogicalSize(w, settings.winH))
+        .then(() => snapDock(w))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
   // auto update check — once per launch, throttled to every 6h
   useEffect(() => {
     if (view !== "widget" || !hasCreds || checkedRef.current) return;
@@ -296,6 +317,7 @@ export default function App() {
     if (dimTimer.current) clearTimeout(dimTimer.current);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    if (peekTimer.current) clearTimeout(peekTimer.current);
   }, []);
 
   // live timer — re-render every second while running
@@ -357,6 +379,7 @@ export default function App() {
     setPaused(false);
     setStartedAt(null);
     setAccumulatedSecs(0);
+    if (collapsed) exitPeek(); // session ended → close peek panel
     setLogs((l) => [
       { id: Date.now(), key: task.key, title: task.title, temp: task.temp, secs },
       ...l,
@@ -462,17 +485,59 @@ export default function App() {
   };
 
   const collapse = async () => {
-    await getCurrentWindow().setSize(new LogicalSize(TAB_W, TAB_H));
+    const w = getCurrentWindow();
+    // remember current expanded size so expand restores it
+    try {
+      const mon = await currentMonitor();
+      const scale = mon ? mon.scaleFactor : 1;
+      const sz = await w.outerSize();
+      updateAppearance({
+        winW: Math.round(sz.width / scale),
+        winH: Math.round(sz.height / scale),
+      });
+    } catch {
+      /* ignore */
+    }
+    await w.setSize(new LogicalSize(TAB_W, TAB_H));
     await snapDock(TAB_W);
     setCollapsed(true);
+    setPeek(false);
     setTabDim(false);
     scheduleDim();
   };
   const expand = async () => {
     wakeTab();
-    await getCurrentWindow().setSize(new LogicalSize(WIN_W, WIN_H));
-    await snapDock(WIN_W);
+    const ww = settings.winW || WIN_W;
+    const wh = settings.winH || WIN_H;
+    await getCurrentWindow().setSize(new LogicalSize(ww, wh));
+    await snapDock(ww);
     setCollapsed(false);
+    setPeek(false);
+  };
+
+  // hover peek: temporarily grow the collapsed tab into a mini control panel
+  const enterPeek = async () => {
+    if (!settings.hoverPeek || !active || peek) return;
+    wakeTab();
+    setPeek(true);
+    await getCurrentWindow().setSize(new LogicalSize(PEEK_W, PEEK_H));
+    await snapDock(PEEK_W);
+  };
+  const exitPeek = async () => {
+    if (!peek) return;
+    setPeek(false);
+    await getCurrentWindow().setSize(new LogicalSize(TAB_W, TAB_H));
+    await snapDock(TAB_W);
+    scheduleDim();
+  };
+  // open peek only after a short hover so it doesn't pop on a passing cursor
+  const schedulePeek = () => {
+    if (!settings.hoverPeek || !active) return;
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = window.setTimeout(enterPeek, 180);
+  };
+  const cancelPeek = () => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
   };
 
   // tab: short click expands, drag moves the window — but ONLY vertically,
@@ -528,6 +593,28 @@ export default function App() {
 
   const totalSecs = logs.reduce((a, l) => a + l.secs, 0);
   const tempLogs = logs.filter((l) => l.temp);
+
+  // copy a scrum-master summary of unplanned (temp) work to the clipboard
+  const shareTemp = async () => {
+    const agg = new Map<string, { title: string; secs: number }>();
+    for (const l of tempLogs) {
+      const e = agg.get(l.key);
+      if (e) e.secs += l.secs;
+      else agg.set(l.key, { title: l.title, secs: l.secs });
+    }
+    const items = [...agg.values()];
+    const total = items.reduce((a, x) => a + x.secs, 0);
+    const text =
+      `${t("shareHeader")} — ${new Date().toLocaleDateString()}\n` +
+      items.map((x) => `• ${x.title} — ${fmt(x.secs)}`).join("\n") +
+      `\n${t("totalLabel")}: ${fmt(total)}`;
+    try {
+      await writeText(text);
+      showNotice(t("copied"), "ok");
+    } catch (e) {
+      showNotice(asMsg(e), "err");
+    }
+  };
 
   // ---- search + sort + (status) grouping ----
   const q = search.trim().toLowerCase();
@@ -621,8 +708,62 @@ export default function App() {
     );
   }
 
-  // ---- collapsed tab fills the tiny window ----
+  // ---- collapsed: peek panel on hover, else thin tab ----
   if (collapsed) {
+    if (peek && active) {
+      return (
+        <div
+          className={"peek" + (settings.dockSide === "left" ? " dockleft" : "")}
+          onPointerLeave={exitPeek}
+          onClick={expand}
+        >
+          <div className="peektask">
+            {selTask ? (
+              <>
+                <span className="keytag">{selTask.key}</span> {selTask.title}
+              </>
+            ) : (
+              ""
+            )}
+          </div>
+          <div className={"peektime" + (running ? " live" : " pausedclock")}>
+            {fmt(elapsed)}
+          </div>
+          <div className="peekbtns">
+            {running ? (
+              <button
+                className="bigbtn pause"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  pause();
+                }}
+              >
+                <Pause size={14} fill="#0c0f16" /> {t("pauseBtn")}
+              </button>
+            ) : (
+              <button
+                className="bigbtn start"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resume();
+                }}
+              >
+                <Play size={14} fill="#0c0f16" /> {t("resumeBtn")}
+              </button>
+            )}
+            <button
+              className="bigbtn stop"
+              onClick={(e) => {
+                e.stopPropagation();
+                stop();
+              }}
+            >
+              <Square size={14} fill="#0c0f16" /> {t("stopShort")}
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         className={
@@ -632,8 +773,14 @@ export default function App() {
         }
         style={{ opacity: tabDim ? settings.dimOpacity : 1 }}
         onPointerDown={onTabPointerDown}
-        onPointerEnter={wakeTab}
-        onPointerLeave={scheduleDim}
+        onPointerEnter={() => {
+          wakeTab();
+          schedulePeek();
+        }}
+        onPointerLeave={() => {
+          cancelPeek();
+          scheduleDim();
+        }}
         title={t("tabTitle")}
       >
         {settings.dockSide === "left" ? (
@@ -876,6 +1023,9 @@ export default function App() {
                 • {l.title} ({fmt(l.secs)})
               </div>
             ))}
+            <button className="sharebtn" onClick={shareTemp}>
+              <Share2 size={13} /> {t("shareBtn")}
+            </button>
           </div>
         )}
       </div>

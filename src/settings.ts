@@ -14,6 +14,9 @@ export interface Settings {
   dockSide: DockSide; // which screen edge the tab docks to
   dimOpacity: number; // 0..1 opacity of the collapsed tab when idle
   dimDelaySec: number; // seconds of idle before the tab dims
+  winW: number | null; // remembered expanded window size (logical px)
+  winH: number | null;
+  hoverPeek: boolean; // show a peek panel when hovering the collapsed tab
   // general
   lang: Lang;
   onboarded: boolean; // false until the first-run language pick is done
@@ -34,6 +37,9 @@ export const DEFAULT_SETTINGS: Settings = {
   dockSide: "right",
   dimOpacity: 0.3,
   dimDelaySec: 3,
+  winW: null,
+  winH: null,
+  hoverPeek: true,
   lang: "fa",
   onboarded: false,
   sortKey: "updated",
