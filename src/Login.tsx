@@ -37,6 +37,9 @@ interface Props {
   current: Settings;
   configured: boolean;
   t: T;
+  hasUpdate: boolean;
+  latestTag: string;
+  releaseUrl: string;
   onSaved: (s: Settings) => void;
   onCancel?: () => void;
   onLoggedOut?: () => void;
@@ -47,6 +50,9 @@ export default function Login({
   current,
   configured,
   t,
+  hasUpdate,
+  latestTag,
+  releaseUrl,
   onSaved,
   onCancel,
   onLoggedOut,
@@ -196,6 +202,7 @@ export default function Login({
           onClick={() => setTab("about")}
         >
           {t("secAbout")}
+          {hasUpdate && <span className="updot" />}
         </button>
       </div>
 
@@ -386,6 +393,15 @@ export default function Login({
             >
               {updateState.kind === "checking" ? t("checking2") : t("checkUpdate")}
             </button>
+            {updateState.kind === "idle" && hasUpdate && (
+              <button
+                className="notice ok"
+                style={{ margin: 0, border: "none", cursor: "pointer" }}
+                onClick={() => openUrl(releaseUrl)}
+              >
+                {t("updateAvailable", { v: latestTag })}
+              </button>
+            )}
             {updateState.kind === "ok" && (
               <div className="notice ok" style={{ margin: 0 }}>
                 {t("upToDate")}

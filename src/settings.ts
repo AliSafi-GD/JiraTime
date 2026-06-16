@@ -21,6 +21,9 @@ export interface Settings {
   sortKey: SortKey;
   scopeBoard: number | null; // null = my issues
   scopeSprint: number | null;
+  // update check
+  lastUpdateCheck: number; // epoch ms of last auto check
+  lastSeenLatest: string; // latest release tag seen (e.g. "v0.1.2")
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +39,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sortKey: "updated",
   scopeBoard: null,
   scopeSprint: null,
+  lastUpdateCheck: 0,
+  lastSeenLatest: "",
 };
 
 const STORE_FILE = "settings.json";

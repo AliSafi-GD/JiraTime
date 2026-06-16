@@ -7,7 +7,9 @@ export interface PersistState {
   logs: LogEntry[]; // recorded time entries
   selected: string | null; // currently selected task key
   running: boolean; // was a timer running
-  startedAt: number | null; // epoch ms the running timer started
+  startedAt: number | null; // epoch ms the current running segment started
+  accumulatedSecs: number; // seconds banked from previous segments (before a pause)
+  paused: boolean; // session active but not counting
 }
 
 const FILE = "state.json";

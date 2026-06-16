@@ -108,6 +108,23 @@ body,
   background: transparent;
   border: none;
   cursor: pointer;
+  position: relative;
+}
+.updot {
+  position: absolute;
+  top: 3px;
+  inset-inline-end: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.tabbar button {
+  position: relative;
+}
+.tabbar button .updot {
+  top: 6px;
+  inset-inline-end: 10px;
 }
 .iconbtn:hover {
   background: rgba(255, 255, 255, 0.07);
@@ -181,6 +198,26 @@ body,
 }
 .bigbtn.stop {
   background: var(--amber);
+}
+.bigbtn.pause {
+  background: var(--blue);
+}
+.btnrow {
+  display: flex;
+  gap: 8px;
+  margin: 8px 12px 12px;
+}
+.btnrow .bigbtn {
+  margin: 0;
+  flex: 1;
+  width: auto;
+}
+.recdot.pause {
+  background: var(--amber);
+}
+.time.pausedclock {
+  color: var(--amber);
+  opacity: 0.55;
 }
 .bigbtn:hover:not(:disabled) {
   filter: brightness(1.07);

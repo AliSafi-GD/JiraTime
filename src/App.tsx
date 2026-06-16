@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Play,
+  Pause,
   Square,
   Pin,
   Plus,
@@ -22,7 +23,9 @@ import {
   PhysicalPosition,
 } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { enable } from "@tauri-apps/plugin-autostart";
+import { REPO_SLUG, REPO_URL } from "./config";
 import Login from "./Login";
 import Onboarding from "./Onboarding";
 import {
@@ -79,7 +82,9 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [accumulatedSecs, setAccumulatedSecs] = useState(0);
   const [, setTick] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [temp, setTemp] = useState("");
@@ -110,6 +115,15 @@ export default function App() {
   const [stateLoaded, setStateLoaded] = useState(false);
   const saveTimer = useRef<number | null>(null);
 
+  // ---- update check ----
+  const [version, setVersion] = useState("");
+  const checkedRef = useRef(false);
+  const normV = (v: string) => v.replace(/^v/, "");
+  const hasUpdate =
+    !!version &&
+    !!settings.lastSeenLatest &&
+    normV(settings.lastSeenLatest) !== version;
+
   // ---- transient notice after stopping a timer ----
   const [notice, setNotice] = useState<{
     text: string;
@@ -138,9 +152,12 @@ export default function App() {
         setTasks(st.tempTasks ?? []);
         setLogs(st.logs ?? []);
         setSelected(st.selected ?? null);
+        setAccumulatedSecs(st.accumulatedSecs ?? 0);
         if (st.running && st.startedAt) {
           setStartedAt(st.startedAt);
           setRunning(true);
+        } else if (st.paused) {
+          setPaused(true);
         }
       }
       setStateLoaded(true);
@@ -175,9 +192,11 @@ export default function App() {
         selected,
         running,
         startedAt,
+        accumulatedSecs,
+        paused,
       });
     }, 300);
-  }, [stateLoaded, tasks, logs, selected, running, startedAt]);
+  }, [stateLoaded, tasks, logs, selected, running, startedAt, accumulatedSecs, paused]);
 
   const refreshIssues = async (
     s: Settings,
@@ -247,6 +266,31 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, hasCreds]);
 
+  // auto update check — once per launch, throttled to every 6h
+  useEffect(() => {
+    if (view !== "widget" || !hasCreds || checkedRef.current) return;
+    checkedRef.current = true;
+    (async () => {
+      const v = await getVersion().catch(() => "");
+      setVersion(v);
+      if (Date.now() - (settings.lastUpdateCheck || 0) > 6 * 3600 * 1000) {
+        try {
+          const info = await invoke<{ latest: string; url: string }>(
+            "check_update",
+            { repo: REPO_SLUG }
+          );
+          updateAppearance({
+            lastUpdateCheck: Date.now(),
+            lastSeenLatest: info.latest,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, hasCreds]);
+
   // clear timers on unmount
   useEffect(() => () => {
     if (dimTimer.current) clearTimeout(dimTimer.current);
@@ -278,21 +322,41 @@ export default function App() {
     invoke("set_tray_language", { lang: settings.lang }).catch(() => {});
   }, [settings.lang]);
 
-  const elapsed =
+  const liveSeg =
     running && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+  const elapsed = accumulatedSecs + liveSeg;
+  const active = running || paused;
   const selTask = tasks.find((tk) => tk.key === selected);
 
   const start = () => {
     if (!selected) return;
+    setAccumulatedSecs(0);
     setStartedAt(Date.now());
     setRunning(true);
+    setPaused(false);
+  };
+  const pause = () => {
+    if (!running || !startedAt) return;
+    setAccumulatedSecs((a) => a + Math.floor((Date.now() - startedAt) / 1000));
+    setStartedAt(null);
+    setRunning(false);
+    setPaused(true);
+  };
+  const resume = () => {
+    setStartedAt(Date.now());
+    setRunning(true);
+    setPaused(false);
   };
   const stop = async () => {
-    if (!startedAt || !selTask) return;
-    const secs = Math.floor((Date.now() - startedAt) / 1000);
+    if (!active || !selTask) return;
+    const secs =
+      accumulatedSecs +
+      (running && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0);
     const task = selTask;
     setRunning(false);
+    setPaused(false);
     setStartedAt(null);
+    setAccumulatedSecs(0);
     setLogs((l) => [
       { id: Date.now(), key: task.key, title: task.title, temp: task.temp, secs },
       ...l,
@@ -500,8 +564,8 @@ export default function App() {
       className={
         "row" + (tk.temp ? " temprow" : "") + (selected === tk.key ? " sel" : "")
       }
-      onClick={() => !running && setSelected(tk.key)}
-      style={running ? { opacity: 0.6, cursor: "not-allowed" } : {}}
+      onClick={() => !active && setSelected(tk.key)}
+      style={active ? { opacity: 0.6, cursor: "not-allowed" } : {}}
     >
       <span className="rkey">{tk.key}</span>
       <span className="rtitle">{tk.title}</span>
@@ -532,6 +596,9 @@ export default function App() {
         current={settings}
         configured={hasCreds}
         t={t}
+        hasUpdate={hasUpdate}
+        latestTag={settings.lastSeenLatest}
+        releaseUrl={`${REPO_URL}/releases/latest`}
         onSaved={(s) => {
           setSettings(s);
           setHasCreds(true);
@@ -574,7 +641,7 @@ export default function App() {
         ) : (
           <ChevronLeft size={16} />
         )}
-        {running && <span className="tabtime">{fmt(elapsed)}</span>}
+        {active && <span className="tabtime">{fmt(elapsed)}</span>}
         <Clock size={15} />
       </div>
     );
@@ -587,8 +654,8 @@ export default function App() {
           <Layers size={15} color="var(--blue)" /> {t("brand")}
         </span>
         <span className="reclamp">
-          <span className={"recdot" + (running ? " on" : "")} />
-          {running ? t("recording") : t("ready")}
+          <span className={"recdot" + (running ? " on" : paused ? " pause" : "")} />
+          {running ? t("recording") : paused ? t("pausedLabel") : t("ready")}
         </span>
         <button
           className={"iconbtn" + (pinned ? " active" : "")}
@@ -597,8 +664,13 @@ export default function App() {
         >
           <Pin size={14} />
         </button>
-        <button className="iconbtn" title={t("settingsTitle")} onClick={() => setView("login")}>
+        <button
+          className="iconbtn"
+          title={t("settingsTitle")}
+          onClick={() => setView("login")}
+        >
           <SettingsIcon size={15} />
+          {hasUpdate && <span className="updot" />}
         </button>
         <button className="iconbtn" title={t("hideTitle")} onClick={collapse}>
           {settings.dockSide === "left" ? (
@@ -613,8 +685,8 @@ export default function App() {
       </div>
 
       <div className="clock">
-        <div className={"time" + (running ? " live" : "")}>
-          {fmt(running ? elapsed : 0)}
+        <div className={"time" + (running ? " live" : paused ? " pausedclock" : "")}>
+          {fmt(active ? elapsed : 0)}
         </div>
         <div className="nowtask">
           {selTask ? (
@@ -627,14 +699,25 @@ export default function App() {
         </div>
       </div>
 
-      {running ? (
-        <button className="bigbtn stop" onClick={stop}>
-          <Square size={16} fill="#0c0f16" /> {t("stopBtn")}
-        </button>
-      ) : (
+      {!active ? (
         <button className="bigbtn start" onClick={start} disabled={!selected}>
           <Play size={16} fill={selected ? "#0c0f16" : "var(--soft)"} /> {t("startBtn")}
         </button>
+      ) : (
+        <div className="btnrow">
+          {running ? (
+            <button className="bigbtn pause" onClick={pause}>
+              <Pause size={16} fill="#0c0f16" /> {t("pauseBtn")}
+            </button>
+          ) : (
+            <button className="bigbtn start" onClick={resume}>
+              <Play size={16} fill="#0c0f16" /> {t("resumeBtn")}
+            </button>
+          )}
+          <button className="bigbtn stop" onClick={stop}>
+            <Square size={16} fill="#0c0f16" /> {t("stopBtn")}
+          </button>
+        </div>
       )}
 
       {notice && <div className={"notice " + notice.kind}>{notice.text}</div>}
