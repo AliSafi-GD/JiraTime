@@ -16,6 +16,7 @@ import {
   X,
   Search,
   Share2,
+  GripVertical,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
@@ -97,6 +98,7 @@ export default function App() {
   const [tabDim, setTabDim] = useState(false);
   const dimTimer = useRef<number | null>(null);
   const peekTimer = useRef<number | null>(null);
+  const peekDragging = useRef(false);
   const apprSaveTimer = useRef<number | null>(null);
   const [pinned, setPinned] = useState(true);
   const [statusMenu, setStatusMenu] = useState<StatusMenu | null>(null);
@@ -524,7 +526,7 @@ export default function App() {
     await snapDock(PEEK_W);
   };
   const exitPeek = async () => {
-    if (!peek) return;
+    if (!peek || peekDragging.current) return; // don't shrink mid-drag
     setPeek(false);
     await getCurrentWindow().setSize(new LogicalSize(TAB_W, TAB_H));
     await snapDock(TAB_W);
@@ -540,9 +542,13 @@ export default function App() {
     if (peekTimer.current) clearTimeout(peekTimer.current);
   };
 
-  // tab: short click expands, drag moves the window — but ONLY vertically,
-  // keeping it pinned to the right edge of the screen.
-  const onTabPointerDown = async (e: React.PointerEvent) => {
+  // collapsed/peek drag: short click expands, drag moves the window vertically
+  // only, kept pinned to the configured screen edge. winW/winH = current size.
+  const onTabPointerDown = async (
+    e: React.PointerEvent,
+    winWidth = TAB_W,
+    winHeight = TAB_H
+  ) => {
     if (e.button !== 0) return;
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
@@ -561,9 +567,9 @@ export default function App() {
         xFixed =
           settings.dockSide === "left"
             ? mon.position.x
-            : mon.position.x + mon.size.width - Math.round(TAB_W * scale);
+            : mon.position.x + mon.size.width - Math.round(winWidth * scale);
         minY = mon.position.y;
-        maxY = mon.position.y + mon.size.height - Math.round(TAB_H * scale);
+        maxY = mon.position.y + mon.size.height - Math.round(winHeight * scale);
       }
     } catch {
       /* ignore */
@@ -572,7 +578,10 @@ export default function App() {
     let dragging = false;
     const move = (ev: PointerEvent) => {
       const dyCss = ev.screenY - startScreenY;
-      if (!dragging && Math.abs(dyCss) > 4) dragging = true;
+      if (!dragging && Math.abs(dyCss) > 4) {
+        dragging = true;
+        peekDragging.current = true; // suppress exitPeek while dragging
+      }
       if (!dragging) return;
       const newY = Math.max(
         minY,
@@ -584,6 +593,7 @@ export default function App() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      peekDragging.current = false;
       if (!dragging) expand();
     };
     window.addEventListener("pointermove", move);
@@ -714,9 +724,13 @@ export default function App() {
       return (
         <div
           className={"peek" + (settings.dockSide === "left" ? " dockleft" : "")}
+          onPointerDown={(e) => onTabPointerDown(e, PEEK_W, PEEK_H)}
           onPointerLeave={exitPeek}
-          onClick={expand}
+          title={t("tabTitle")}
         >
+          <div className="peekhint">
+            <GripVertical size={12} />
+          </div>
           <div className="peektask">
             {selTask ? (
               <>
@@ -729,7 +743,7 @@ export default function App() {
           <div className={"peektime" + (running ? " live" : " pausedclock")}>
             {fmt(elapsed)}
           </div>
-          <div className="peekbtns">
+          <div className="peekbtns" onPointerDown={(e) => e.stopPropagation()}>
             {running ? (
               <button
                 className="bigbtn pause"

@@ -584,9 +584,12 @@ body,
   border: 1px solid var(--line);
   border-radius: 12px;
   color: var(--text);
-  cursor: pointer;
+  cursor: grab;
   transform-origin: right center;
   animation: peekin 0.18s ease-out;
+}
+.peek:active {
+  cursor: grabbing;
 }
 .peek.dockleft {
   transform-origin: left center;
@@ -612,6 +615,14 @@ body,
     transform: none;
   }
 }
+.peekhint {
+  display: flex;
+  justify-content: center;
+  color: var(--soft);
+  transform: rotate(90deg);
+  height: 8px;
+  margin-top: -4px;
+}
 .peektask {
   font-size: 12px;
   color: var(--muted);
@@ -619,6 +630,9 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
+}
+.peekbtns .bigbtn {
+  cursor: pointer;
 }
 .peektime {
   text-align: center;
